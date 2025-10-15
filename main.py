@@ -98,7 +98,7 @@ def evaluate_question(model, tokenizer, df_slice: pl.DataFrame, prompt: str) -> 
         max_new_tokens=1024,
     )
     # pre-process inputs
-    return tokenizer.decode(outputs[:, prompt_length:], skip_special_tokens=True)
+    return tokenizer.batch_decode(outputs[:, prompt_length:], skip_special_tokens=True)
 
 
 def convert_llm_output_to_binary(output: str) -> tuple[int, str | None]:
