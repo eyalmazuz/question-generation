@@ -82,7 +82,7 @@ def evaluate_question(model, tokenizer, df_slice: pl.DataFrame, prompt: str) -> 
         for row in df_slice.iter_rows(named=True)
     ]
     encoding = tokenizer.apply_chat_template(
-        messages, return_tensors="pt", return_dict=True
+        messages, return_tensors="pt", return_dict=True, padding=True, truncation=True,
     ).to(model.device)
     prompt_length = encoding["input_ids"].size(1)
 
