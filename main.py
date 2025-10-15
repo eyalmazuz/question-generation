@@ -36,6 +36,12 @@ def parse_args() -> argparse.Namespace:
         choices=["cpu", "cuda", "auto"],
         help="Which device to use when running the model.",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        help="Batch size to use for inference. Default is 1.",
+    )
 
     args = parser.parse_args()
 
@@ -63,14 +69,17 @@ def load_model(model_name: str, use_8bit: bool = False, device: str = "cuda"):
     return model, tokenizer
 
 
-def evaluate_question(
-    model, tokenizer, context: str, question: str, prompt: str
-) -> str:
+def evaluate_question(model, tokenizer, df_slice: pl.DataFrame, prompt: str) -> str:
     messages = [
-        {
-            "role": "user",
-            "content": prompt.format(question=question, context=context),
-        },
+        [
+            {
+                "role": "user",
+                "content": prompt.format(
+                    question=row["question"], context=row["context"]
+                ),
+            }
+        ]
+        for row in df_slice.iter_rows(named=True)
     ]
     encoding = tokenizer.apply_chat_template(
         messages, return_tensors="pt", return_dict=True
@@ -84,17 +93,20 @@ def evaluate_question(
         max_new_tokens=1024,
     )
     # pre-process inputs
-    return tokenizer.decode(outputs[0][prompt_length:], skip_special_tokens=True)
+    return tokenizer.decode(outputs[:, prompt_length:], skip_special_tokens=True)
 
 
 def convert_llm_output_to_binary(output: str) -> tuple[int, str | None]:
-    # This method suppose to convert the LLM output to 0 or 1
-    # Depending on the prompt and LLM output
-    # Overall the default is that if `Answer:` prefix exists
-    # and there's an answer wrapped in <ans> tokens
-    # And the question is answerable and thus good
-    # Otherwise if "not answerable" exists, the LLM thinks the question is bad
-    # Any other case we count it as LLM failure to comply
+    """
+    This method suppose to convert the LLM output to 0 or 1
+    Depending on the prompt and LLM output
+    Overall the default is that if `Answer:` prefix exists
+    and there's an answer wrapped in <ans> tokens
+    And the question is answerable and thus good
+    Otherwise if "not answerable" exists, the LLM thinks the question is bad
+    Any other case we count it as LLM failure to comply
+    We return 1 if the question is not answerable, 0 otherwise.
+    """
     if "Answer:" in output:
         answer_start_index = output.find("Answer: ")
         # Honestly the part below with re is kinda useless but I like it
@@ -116,12 +128,18 @@ def convert_llm_output_to_binary(output: str) -> tuple[int, str | None]:
     return 1 - success, answer
 
 
-def compute_metrics(preds: list[tuple[int, str | None]], labels: list[tuple[int, str | None]]) -> dict[str, float]:
+def compute_metrics(
+    preds: list[tuple[int, str | None]], labels: list[tuple[int, str | None]]
+) -> dict[str, float]:
     y_pred = [score for score, text in preds]
     y_true = [score for score, text in labels]
     acc = accuracy_score(y_true, y_pred)
-    f1 = f1_score(y_true, y_pred, average="macro") # It's 'multi-class' cause of failure rates
-    fail_rate = y_pred.count(-1) / len(y_true) # Check how many times the LLM failed to comply
+    f1 = f1_score(
+        y_true, y_pred, average="macro"
+    )  # It's 'multi-class' cause of failure rates
+    fail_rate = y_pred.count(-1) / len(
+        y_true
+    )  # Check how many times the LLM failed to comply
 
     # Maybe in the future we'll also calculate stuff like lexical metrics
     # Such as ROUGE, BLEU, and so forth.
@@ -145,21 +163,19 @@ def main() -> None:
 
     llm_answers: list[str] = []
     labels: list[tuple[int, str | None]] = []
-    for i, row in enumerate(tqdm(df.iter_rows(named=True)), 1):
-        print("##########################################")
-        print(f"Question: {row['question']}")
-        print(f"Answer: {row['answer']}")
-        print(f"Is impossible: {row['is_impossible']}")
-        answer = evaluate_question(
-            model, tokenizer, row["context"], row["question"], prompt=prompt
-        )
-        print(f"{answer}")
-        print("##########################################")
-        llm_answers.append(answer)
-        labels.append((row["is_impossible"], row["answer"]))
+    for i, df_slice in enumerate(tqdm(df.iter_slices(n_rows=args.batch_size)), 1):
+        # print("##########################################")
+        # print(f"Question: {row['question']}")
+        # print(f"Answer: {row['answer']}")
+        # print(f"Is impossible: {row['is_impossible']}")
+        answers = evaluate_question(model, tokenizer, df_slice, prompt=prompt)
+        # print(f"{answer}")
+        # print("##########################################")
+        for i, row in enumerate(df_slice.iter_rows(named=True)):
+            labels.append((row["is_impossible"], row["answer"]))
+            llm_answers.append(answers[i])
         if i == 10:
             break
-
 
     llm_binary_preds = [convert_llm_output_to_binary(answer) for answer in llm_answers]
     metrics = compute_metrics(llm_binary_preds, labels)
@@ -175,8 +191,6 @@ def main() -> None:
     # 7. Extract the code to mutiple files, utils, data handlers.
 
     # 9. Imporve the prompt.
-
-    # 10. Maybe batch processing?
 
 
 if __name__ == "__main__":
