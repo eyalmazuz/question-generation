@@ -176,9 +176,9 @@ def main() -> None:
         answers = evaluate_question(model, tokenizer, df_slice, prompt=prompt)
         # print(f"{answer}")
         # print("##########################################")
-        for i, row in enumerate(df_slice.iter_rows(named=True)):
+        for ii, row in enumerate(df_slice.iter_rows(named=True)):
             labels.append((row["is_impossible"], row["answer"]))
-            llm_answers.append(answers[i])
+            llm_answers.append(answers[ii])
         if i == 10:
             break
 
