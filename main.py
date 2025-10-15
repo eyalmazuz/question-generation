@@ -88,7 +88,7 @@ def evaluate_question(model, tokenizer, df_slice: pl.DataFrame, prompt: str) -> 
         truncation=True,
         return_tensors="pt",
         return_dict=True,
-    )
+    ).to(model.device)
     prompt_length = encoding["input_ids"].size(1)
 
     outputs = model.generate(
@@ -181,6 +181,9 @@ def main() -> None:
             llm_answers.append(answers[i])
         if i == 10:
             break
+
+    print(f"{len(llm_answers)=}")
+    print(f"{len(labels)=}")
 
     llm_binary_preds = [convert_llm_output_to_binary(answer) for answer in llm_answers]
     metrics = compute_metrics(llm_binary_preds, labels)
