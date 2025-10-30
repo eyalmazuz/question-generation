@@ -20,7 +20,7 @@ def parse_args() -> argparse.Namespace:
         "--model",
         type=str,
         default="gemini-2.5-flash",
-        choices=["gemini-2.5", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+        choices=["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
         help="Path to the prompt file to use.",
     )
 
