@@ -1,5 +1,6 @@
 import argparse
 import os
+import pprint
 import re
 import tomllib
 from typing import NamedTuple
@@ -11,6 +12,7 @@ import torch
 from sklearn.metrics import accuracy_score, f1_score
 from tqdm.auto import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from vllm import LLM, SamplingParams
 
 torch.set_float32_matmul_precision("high")
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -38,6 +40,17 @@ def parse_args() -> argparse.Namespace:
         help="Whether to use 8bit mix-precision or not.",
     )
     parser.add_argument(
+        "--use-vllm",
+        action="store_true",
+        help="Wheter to use vllm for model inference."
+    )
+    parser.add_argument(
+        "--quantization",
+        type=str,
+        choices=["bitsandbytes", "modelopt", "fp8"],
+        help="Whether to use 8bit mix-precision or not.",
+    )
+    parser.add_argument(
         "--device",
         type=str,
         choices=["cpu", "cuda", "auto"],
@@ -57,6 +70,9 @@ def parse_args() -> argparse.Namespace:
     )
 
     args = parser.parse_args()
+
+    if args.quantization is not None and not args.use_vllm:
+        raise parser.error("--use-vllm is required when using --quantization")
 
     return args
 
@@ -107,7 +123,8 @@ def evaluate_question(
     df_slice: pl.DataFrame,
     prompt: str,
     few_shots: list[FewShotExample],
-) -> str:
+    use_vllm: bool = False,
+) -> str | list[str]:
     few_shot_prefix = build_few_shot_example(few_shots)
     messages = [
         [
@@ -120,24 +137,31 @@ def evaluate_question(
         ]
         for row in df_slice.iter_rows(named=True)
     ]
+    pprint.pprint(messages)
     encoding = tokenizer.apply_chat_template(
-        messages,
-        add_generation_prompt=True,
-        padding=True,
-        truncation=True,
-        return_tensors="pt",
-        return_dict=True,
-    ).to(model.device)
-    prompt_length = encoding["input_ids"].size(1)
+            messages,
+            add_generation_prompt=True,
+            tokenize=not use_vllm,
+            padding=True,
+            truncation=True,
+            return_tensors="pt",
+            return_dict=not use_vllm,
+        )
 
-    outputs = model.generate(
-        **encoding,
-        do_sample=True,
-        temperature=1.0,
-        max_new_tokens=1024,
-    )
-    # pre-process inputs
-    return tokenizer.batch_decode(outputs[:, prompt_length:], skip_special_tokens=True)
+    if use_vllm:
+        # sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
+        outputs = model.generate(encoding)
+        return [output.outputs[0].text for output in outputs]
+    else:
+        prompt_length = encoding["input_ids"].size(1)
+        outputs = model.generate(
+            **encoding.to(model.device),
+            do_sample=True,
+            temperature=1.0,
+            max_new_tokens=1024,
+        )
+        # pre-process inputs
+        return tokenizer.batch_decode(outputs[:, prompt_length:], skip_special_tokens=True)
 
 
 def convert_llm_output_to_binary(output: str) -> tuple[int, str | None]:
@@ -199,21 +223,23 @@ def main() -> None:
 
     with open(config["prompt_path"], "r") as fd:
         prompt = fd.read()
-    num_of_shots = args.num_of_shots
 
     # load the model + tokenizer
-    model, tokenizer = load_model(config["model_name"], args.use_8bit, args.device)
+    if args.use_vllm:
+        model = LLM(model=config["model_name"], enable_prefix_caching=False, max_model_len=2048, quantization=args.quantization)
+        tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
+    else:
+        model, tokenizer = load_model(config["model_name"], args.use_8bit, args.device)
 
-    df = pl.read_csv(args.data_path)
-    df = df.with_row_count()
+    df = pl.read_csv(args.data_path).with_row_index()
 
     llm_answers: list[str] = []
     labels: list[tuple[int, str | None]] = []
     for i, df_slice in enumerate(tqdm(df.iter_slices(n_rows=args.batch_size)), 1):
         few_shots: list[FewShotExample] = []
-        if num_of_shots > 0:
-            rest_df = df.anti_join(df_slice, on="row_nr")
-            sampled_rows = rest_df.sample(n=num_of_shots, with_replacement=False)
+        if args.num_of_shots > 0:
+            rest_df = df.join(df_slice, on="index", how="anti")
+            sampled_rows = rest_df.sample(n=args.num_of_shots, with_replacement=False)
             for sample_row in sampled_rows.iter_rows(named=True):
                 example = FewShotExample(
                     context=sample_row["context"],
@@ -224,7 +250,7 @@ def main() -> None:
                 )
                 few_shots.append(example)
         answers = evaluate_question(
-            model, tokenizer, df_slice, prompt=prompt, few_shots=few_shots
+            model, tokenizer, df_slice, prompt=prompt, few_shots=few_shots, use_vllm=args.use_vllm,
         )
         for ii, row in enumerate(df_slice.iter_rows(named=True)):
             labels.append((row["is_impossible"], row["answer"]))
@@ -234,6 +260,8 @@ def main() -> None:
 
     print(f"{len(llm_answers)=}")
     print(f"{len(labels)=}")
+    print(f"{llm_answers=}")
+    print(f"{labels=}")
 
     llm_binary_preds = [convert_llm_output_to_binary(answer) for answer in llm_answers]
     metrics = compute_metrics(llm_binary_preds, labels)
