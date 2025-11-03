@@ -175,18 +175,15 @@ def convert_llm_output_to_binary(output: str) -> tuple[int, str | None]:
     Any other case we count it as LLM failure to comply
     We return 1 if the question is not answerable, 0 otherwise.
     """
-    if "Answer:" in output:
-        answer_start_index = output.find("Answer: ")
-        # Honestly the part below with re is kinda useless but I like it
-        answer_start = output[answer_start_index:]  # We slice to only get the answer
-        match = re.search(r"(?<=<ans>).*(?=<ans>)", answer_start)
-        if match is not None:
-            success = 1
-            answer = match.group().strip()
-        else:
-            success = 1
-            answer = None
-    elif "Not Answerable" in output:
+    # if "Answer:" in output:
+    #     answer_start_index = output.find("Answer: ")
+    #     # Honestly the part below with re is kinda useless but I like it
+    #     answer_start = output[answer_start_index:]  # We slice to only get the answer
+    match = re.search(r"(?<=<ans>).*(?=<\/ans>)", output)
+    if match is not None:
+        success = 1
+        answer = match.group().strip()
+    elif "Not answerable" in output:
         success = 0
         answer = None
     else:
@@ -201,6 +198,8 @@ def compute_metrics(
 ) -> dict[str, float]:
     y_pred = [score for score, text in preds]
     y_true = [score for score, text in labels]
+    print(f"{y_pred=}")
+    print(f"{y_true=}")
     acc = accuracy_score(y_true, y_pred)
     f1 = f1_score(
         y_true, y_pred, average="macro"
