@@ -2,6 +2,7 @@ import argparse
 import os
 import re
 import tomllib
+from typing import NamedTuple
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -14,6 +15,12 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 torch.set_float32_matmul_precision("high")
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
+
+
+class FewShotExample(NamedTuple):
+    context: str
+    question: str
+    answer: str
 
 
 def parse_args() -> argparse.Namespace:
@@ -42,6 +49,12 @@ def parse_args() -> argparse.Namespace:
         default=1,
         help="Batch size to use for inference. Default is 1.",
     )
+    parser.add_argument(
+        "--num-of-shots",
+        type=int,
+        default=0,
+        help="Num of shots to use in a few-shot prompt.",
+    )
 
     args = parser.parse_args()
 
@@ -69,13 +82,39 @@ def load_model(model_name: str, use_8bit: bool = False, device: str = "cuda"):
     return model, tokenizer
 
 
-def evaluate_question(model, tokenizer, df_slice: pl.DataFrame, prompt: str) -> str:
+def build_few_shot_example(shot_list: list[FewShotExample]) -> str:
+    few_shot_prompt = """
+    Example {i}:
+
+    Example Passage: {context}
+
+    Example Sentence: {sentence}
+
+    Example Response: <ans> {response} </ans>
+    """
+    prompts: list[str] = []
+    for i, shot in enumerate(shot_list, 1):
+        example_prompt = few_shot_prompt.format(
+            i=i, context=shot.context, sentence=shot.question, response=shot.answer
+        )
+        prompts.append(example_prompt)
+    return "\n\n".join(prompts)
+
+
+def evaluate_question(
+    model,
+    tokenizer,
+    df_slice: pl.DataFrame,
+    prompt: str,
+    few_shots: list[FewShotExample],
+) -> str:
+    few_shot_prefix = build_few_shot_example(few_shots)
     messages = [
         [
             {
                 "role": "user",
                 "content": prompt.format(
-                    question=row["question"], context=row["context"]
+                    question=row["question"], context=row["context"], few_shot=few_shot_prefix
                 ),
             }
         ]
@@ -160,22 +199,33 @@ def main() -> None:
 
     with open(config["prompt_path"], "r") as fd:
         prompt = fd.read()
+    num_of_shots = args.num_of_shots
 
     # load the model + tokenizer
     model, tokenizer = load_model(config["model_name"], args.use_8bit, args.device)
 
     df = pl.read_csv(args.data_path)
+    df = df.with_row_count()
 
     llm_answers: list[str] = []
     labels: list[tuple[int, str | None]] = []
     for i, df_slice in enumerate(tqdm(df.iter_slices(n_rows=args.batch_size)), 1):
-        # print("##########################################")
-        # print(f"Question: {row['question']}")
-        # print(f"Answer: {row['answer']}")
-        # print(f"Is impossible: {row['is_impossible']}")
-        answers = evaluate_question(model, tokenizer, df_slice, prompt=prompt)
-        # print(f"{answer}")
-        # print("##########################################")
+        few_shots: list[FewShotExample] = []
+        if num_of_shots > 0:
+            rest_df = df.anti_join(df_slice, on="row_nr")
+            sampled_rows = rest_df.sample(n=num_of_shots, with_replacement=False)
+            for sample_row in sampled_rows.iter_rows(named=True):
+                example = FewShotExample(
+                    context=sample_row["context"],
+                    question=sample_row["question"],
+                    answer=sample_row["answer"]
+                    if sample_row["is_impossible"] == 0
+                    else "Not answerable",
+                )
+                few_shots.append(example)
+        answers = evaluate_question(
+            model, tokenizer, df_slice, prompt=prompt, few_shots=few_shots
+        )
         for ii, row in enumerate(df_slice.iter_rows(named=True)):
             labels.append((row["is_impossible"], row["answer"]))
             llm_answers.append(answers[ii])
