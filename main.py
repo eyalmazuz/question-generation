@@ -208,10 +208,16 @@ def compute_metrics(
         y_true
     )  # Check how many times the LLM failed to comply
 
+    # sum of y_true would give the count of non-answerable questions
+    # and impossible_pred contains all the predictions for those non-answerable questions
+    # so summing impossible_pred gives us how many question the model decided that are non-answerable from the non-answerable set
+    impossible_pred = [pred for pred, label in zip(y_pred, y_true) if label == 1 and pred != 2]
+    tpr = sum(impossible_pred) / sum(y_true)
+
     # Maybe in the future we'll also calculate stuff like lexical metrics
     # Such as ROUGE, BLEU, and so forth.
 
-    return {"accuracy": acc, "f1": f1, "fail_rate": fail_rate}
+    return {"accuracy": acc, "f1": f1, "tpr": tpr, "fail_rate": fail_rate}
 
 
 def main() -> None:
