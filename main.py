@@ -137,7 +137,6 @@ def evaluate_question(
         ]
         for row in df_slice.iter_rows(named=True)
     ]
-    pprint.pprint(messages)
     encoding = tokenizer.apply_chat_template(
             messages,
             add_generation_prompt=True,
@@ -159,6 +158,7 @@ def evaluate_question(
             do_sample=True,
             temperature=1.0,
             max_new_tokens=1024,
+            cache_implementation="static"
         )
         # pre-process inputs
         return tokenizer.batch_decode(outputs[:, prompt_length:], skip_special_tokens=True)
@@ -198,8 +198,6 @@ def compute_metrics(
 ) -> dict[str, float]:
     y_pred = [score for score, text in preds]
     y_true = [score for score, text in labels]
-    print(f"{y_pred=}")
-    print(f"{y_true=}")
     acc = accuracy_score(y_true, y_pred)
     f1 = f1_score(
         y_true, y_pred, average="macro"
@@ -260,18 +258,15 @@ def main() -> None:
         for ii, row in enumerate(df_slice.iter_rows(named=True)):
             labels.append((row["is_impossible"], row["answer"]))
             llm_answers.append(answers[ii])
-        if i == 10:
-            break
-
-    print(f"{len(llm_answers)=}")
-    print(f"{len(labels)=}")
-    print(f"{llm_answers=}")
-    print(f"{labels=}")
+        # if i == 10:
+        #     break
 
     llm_binary_preds = [convert_llm_output_to_binary(answer) for answer in llm_answers]
     metrics = compute_metrics(llm_binary_preds, labels)
     print(metrics)
 
+    df = df.with_columns(pl.Series(name="llm_replies", values=llm_answers))
+    df.write_csv("answers.csv")
     # Next steps:
     # 4. Convert the script to sbatch format to run.
 
