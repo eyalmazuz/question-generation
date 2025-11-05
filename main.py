@@ -179,16 +179,17 @@ def convert_llm_output_to_binary(output: str) -> tuple[int, str | None]:
     #     answer_start_index = output.find("Answer: ")
     #     # Honestly the part below with re is kinda useless but I like it
     #     answer_start = output[answer_start_index:]  # We slice to only get the answer
-    match = re.search(r"(?<=<ans>).*(?=<\/ans>)", output)
-    if match is not None:
-        success = 1
-        answer = match.group().strip()
-    elif "Not answerable" in output:
+    if "Not answerable" in output:
         success = 0
         answer = None
     else:
-        success = -1
-        answer = None
+        match = re.search(r"(?<=<ans>).*(?=<\/ans>)", output)
+        if match is not None:
+            success = 1
+            answer = match.group().strip()
+        else:
+            success = -1
+            answer = None
 
     return 1 - success, answer
 
