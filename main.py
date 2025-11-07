@@ -35,7 +35,15 @@ def parse_args() -> argparse.Namespace:
         "--data-path", type=str, required=True, help="Path to the QA CSV to evaluate."
     )
     parser.add_argument(
+        "--save-path", type=str, default="./answers.csv", help="Path to save the results"
+    )
+    parser.add_argument(
         "--use-8bit",
+        action="store_true",
+        help="Whether to use 8bit mix-precision or not.",
+    )
+    parser.add_argument(
+        "--use-4bit",
         action="store_true",
         help="Whether to use 8bit mix-precision or not.",
     )
@@ -77,9 +85,9 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def load_model(model_name: str, use_8bit: bool = False, device: str = "cuda"):
-    if use_8bit:
-        quantization_config = BitsAndBytesConfig(load_in_8bit=True)
+def load_model(model_name: str, use_8bit: bool = False, use_4bit: bool = False, device: str = "cuda"):
+    if use_8bit or use_4bit:
+        quantization_config = BitsAndBytesConfig(load_in_8bit=use_8bit, load_in_4bit=use_4bit)
         dtype = None
     else:
         quantization_config = None
@@ -95,6 +103,7 @@ def load_model(model_name: str, use_8bit: bool = False, device: str = "cuda"):
     model = torch.compile(
         model, backend="inductor", mode="reduce-overhead", fullgraph=True
     )
+
     return model, tokenizer
 
 
@@ -106,7 +115,7 @@ def build_few_shot_example(shot_list: list[FewShotExample]) -> str:
 
     Example Sentence: {sentence}
 
-    Example Response: <ans> {response} </ans>
+    Example Response: {response}
     """
     prompts: list[str] = []
     for i, shot in enumerate(shot_list, 1):
@@ -158,7 +167,8 @@ def evaluate_question(
             do_sample=True,
             temperature=1.0,
             max_new_tokens=1024,
-            cache_implementation="static"
+            cache_implementation="static",
+            renormalize_logits=True,
         )
         # pre-process inputs
         return tokenizer.batch_decode(outputs[:, prompt_length:], skip_special_tokens=True)
@@ -233,7 +243,7 @@ def main() -> None:
         model = LLM(model=config["model_name"], enable_prefix_caching=False, max_model_len=2048, quantization=args.quantization)
         tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
     else:
-        model, tokenizer = load_model(config["model_name"], args.use_8bit, args.device)
+        model, tokenizer = load_model(config["model_name"], args.use_8bit, args.use_4bit, args.device)
 
     df = pl.read_csv(args.data_path).with_row_index()
 
@@ -267,7 +277,7 @@ def main() -> None:
     print(metrics)
 
     df = df.with_columns(pl.Series(name="llm_replies", values=llm_answers))
-    df.write_csv("answers.csv")
+    df.write_csv(args.save_path)
     # Next steps:
     # 4. Convert the script to sbatch format to run.
 
