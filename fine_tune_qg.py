@@ -67,7 +67,7 @@ def parse_args() -> argparse.Namespace:
         "--steps", type=int, default=512, help="Number of training steps."
     )
     parser.add_argument(
-        "--lr", type=float, default=5e-4, help="Training learning rate."
+        "--learning-rate", type=float, default=5e-4, help="Training learning rate."
     )
     args = parser.parse_args()
 
