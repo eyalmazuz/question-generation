@@ -79,15 +79,18 @@ def main() -> None:
     with open(args.prompt_path, "r") as fd:
         prompt = fd.read()
 
+    print("Loading Dataset")
     # Configure the dataset
     data_files = {"train": args.train_data_path, "test": args.dev_data_path}
     dataset = load_dataset("csv", data_files=data_files)
+    print("Preparing Dataset")
     dataset = dataset.map(
         preprocess_function,
         fn_kwargs={"prompt": prompt},
         remove_columns=dataset["train"].column_names,
     )
 
+    print("Loading model")
     # Configure model and tokenizer
     if args.use_8bit or args.use_4bit:
         quantization_config = BitsAndBytesConfig(
@@ -107,6 +110,7 @@ def main() -> None:
     )
     # Setup chat template
 
+    print("Setting LoRA")
     # Configure LoRA training
     peft_config = LoraConfig(
         r=6,
@@ -117,6 +121,7 @@ def main() -> None:
         task_type="CAUSAL_LM",
     )
 
+    print("Setting Training Args")
     # Configure training args
     training_args = SFTConfig(
         # STF related args
@@ -157,6 +162,7 @@ def main() -> None:
         gradient_checkpointing_kwargs={"use_reentrant": False},
     )
 
+    print("Setting Trainer")
     trainer = SFTTrainer(
         model=model,
         args=training_args,
@@ -166,6 +172,7 @@ def main() -> None:
         processing_class=tokenizer,
     )
 
+    print("Training")
     trainer.train()
 
 
