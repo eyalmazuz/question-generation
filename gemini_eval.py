@@ -17,6 +17,9 @@ def parse_args() -> argparse.Namespace:
         "--data-path", type=str, required=True, help="Path to the QG csv file to use."
     )
     parser.add_argument(
+        "--save-path", type=str, required=True, help="Path to save the output file."
+    )
+    parser.add_argument(
         "--model",
         type=str,
         default="gemini-2.5-flash",
@@ -58,7 +61,7 @@ def main() -> None:
         time.sleep(0.2)
 
     df = df.with_columns(pl.Series(name="gemini_replies", values=answers))
-    df.write_csv("answers.csv")
+    df.write_csv(args.save_path)
 
 
 if __name__ == "__main__":
