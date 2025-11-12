@@ -1,6 +1,5 @@
 import argparse
 import os
-import pprint
 import re
 import tomllib
 from typing import NamedTuple
@@ -12,7 +11,7 @@ import torch
 from sklearn.metrics import accuracy_score, f1_score
 from tqdm.auto import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from vllm import LLM, SamplingParams
+from vllm import LLM
 
 torch.set_float32_matmul_precision("high")
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -35,7 +34,10 @@ def parse_args() -> argparse.Namespace:
         "--data-path", type=str, required=True, help="Path to the QA CSV to evaluate."
     )
     parser.add_argument(
-        "--save-path", type=str, default="./answers.csv", help="Path to save the results"
+        "--save-path",
+        type=str,
+        default="./answers.csv",
+        help="Path to save the results",
     )
     parser.add_argument(
         "--use-8bit",
@@ -50,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--use-vllm",
         action="store_true",
-        help="Wheter to use vllm for model inference."
+        help="Wheter to use vllm for model inference.",
     )
     parser.add_argument(
         "--quantization",
@@ -85,9 +87,16 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def load_model(model_name: str, use_8bit: bool = False, use_4bit: bool = False, device: str = "cuda"):
+def load_model(
+    model_name: str,
+    use_8bit: bool = False,
+    use_4bit: bool = False,
+    device: str = "cuda",
+):
     if use_8bit or use_4bit:
-        quantization_config = BitsAndBytesConfig(load_in_8bit=use_8bit, load_in_4bit=use_4bit)
+        quantization_config = BitsAndBytesConfig(
+            load_in_8bit=use_8bit, load_in_4bit=use_4bit
+        )
         dtype = None
     else:
         quantization_config = None
@@ -140,21 +149,23 @@ def evaluate_question(
             {
                 "role": "user",
                 "content": prompt.format(
-                    question=row["question"], context=row["context"], few_shot=few_shot_prefix
+                    question=row["question"],
+                    context=row["context"],
+                    few_shot=few_shot_prefix,
                 ),
             }
         ]
         for row in df_slice.iter_rows(named=True)
     ]
     encoding = tokenizer.apply_chat_template(
-            messages,
-            add_generation_prompt=True,
-            tokenize=not use_vllm,
-            padding=True,
-            truncation=True,
-            return_tensors="pt",
-            return_dict=not use_vllm,
-        )
+        messages,
+        add_generation_prompt=True,
+        tokenize=not use_vllm,
+        padding=True,
+        truncation=True,
+        return_tensors="pt",
+        return_dict=not use_vllm,
+    )
 
     if use_vllm:
         # sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
@@ -171,7 +182,9 @@ def evaluate_question(
             renormalize_logits=True,
         )
         # pre-process inputs
-        return tokenizer.batch_decode(outputs[:, prompt_length:], skip_special_tokens=True)
+        return tokenizer.batch_decode(
+            outputs[:, prompt_length:], skip_special_tokens=True
+        )
 
 
 def convert_llm_output_to_binary(output: str) -> tuple[int, str | None]:
@@ -220,7 +233,9 @@ def compute_metrics(
     # sum of y_true would give the count of non-answerable questions
     # and impossible_pred contains all the predictions for those non-answerable questions
     # so summing impossible_pred gives us how many question the model decided that are non-answerable from the non-answerable set
-    impossible_pred = [pred for pred, label in zip(y_pred, y_true) if label == 1 and pred != 2]
+    impossible_pred = [
+        pred for pred, label in zip(y_pred, y_true) if label == 1 and pred != 2
+    ]
     tpr = sum(impossible_pred) / sum(y_true)
 
     # Maybe in the future we'll also calculate stuff like lexical metrics
@@ -240,10 +255,17 @@ def main() -> None:
 
     # load the model + tokenizer
     if args.use_vllm:
-        model = LLM(model=config["model_name"], enable_prefix_caching=False, max_model_len=2048, quantization=args.quantization)
+        model = LLM(
+            model=config["model_name"],
+            enable_prefix_caching=False,
+            max_model_len=2048,
+            quantization=args.quantization,
+        )
         tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
     else:
-        model, tokenizer = load_model(config["model_name"], args.use_8bit, args.use_4bit, args.device)
+        model, tokenizer = load_model(
+            config["model_name"], args.use_8bit, args.use_4bit, args.device
+        )
 
     df = pl.read_csv(args.data_path).with_row_index()
 
@@ -264,7 +286,12 @@ def main() -> None:
                 )
                 few_shots.append(example)
         answers = evaluate_question(
-            model, tokenizer, df_slice, prompt=prompt, few_shots=few_shots, use_vllm=args.use_vllm,
+            model,
+            tokenizer,
+            df_slice,
+            prompt=prompt,
+            few_shots=few_shots,
+            use_vllm=args.use_vllm,
         )
         for ii, row in enumerate(df_slice.iter_rows(named=True)):
             labels.append((row["is_impossible"], row["answer"]))
