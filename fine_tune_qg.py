@@ -100,7 +100,7 @@ def main() -> None:
     else:
         quantization_config = None
         dtype = torch.bfloat16
-    tokenizer = AutoTokenizer.from_pretrained(args.name)
+    tokenizer = AutoTokenizer.from_pretrained(args.model)
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
         quantization_config=quantization_config,
