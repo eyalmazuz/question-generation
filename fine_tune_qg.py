@@ -22,7 +22,7 @@ def preprocess_function(example, prompt):
     }
     answer = "Not answerable" if example["is_impossible"] == 1 else example["answer"]
     return {
-        "prompt": user_input,
+        "prompt": [user_input],
         "completion": [{"role": "assistant", "content": f"{answer}"}],
     }
 
@@ -90,6 +90,7 @@ def main() -> None:
         remove_columns=dataset["train"].column_names,
     )
 
+    print(dataset)
     print("Loading model")
     # Configure model and tokenizer
     if args.use_8bit or args.use_4bit:
@@ -105,9 +106,9 @@ def main() -> None:
         args.model,
         quantization_config=quantization_config,
         dtype=dtype,
-        attn_implementation="sdpa",
-        device_map=args.device,
-    )
+        attn_implementation="eager",
+        # device_map=args.device,
+    ) # .to(args.device)
     # Setup chat template
 
     print("Setting LoRA")
@@ -125,8 +126,8 @@ def main() -> None:
     # Configure training args
     training_args = SFTConfig(
         # STF related args
-        model_init_kwargs={"dtype": torch.bfloat16},
-        packing=True,
+        # model_init_kwargs={"dtype": torch.bfloat16},
+        # packing=True,
         completion_only_loss=True,
         pad_to_multiple_of=8,
         use_liger_kernel=True,
@@ -139,25 +140,27 @@ def main() -> None:
         eval_strategy="steps",
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
+        gradient_accumulation_steps=8,
+        eval_accumulation_steps=8,
         learning_rate=args.learning_rate,
         max_grad_norm=1.0,
         weight_decay=0.1,
         max_steps=args.steps,
-        warmup_ratio=0.1,
+        warmup_ratio=0.2,
         logging_strategy="steps",
-        logging_steps=5,
+        logging_steps=1000,
         save_strategy="steps",
-        save_steps=10,
-        save_total_limit=1,
-        bf16=True,
+        save_steps=3000,
+        save_total_limit=3,
+        bf16=False,
         tf32=True,
-        eval_steps=10,
+        eval_steps=3000,
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
-        optim="adamw_torch_fused",
+        optim="adamw_8bit",
         dataloader_pin_memory=True,
-        torch_compile=True,
+        torch_compile=False,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
     )

@@ -10,6 +10,7 @@ dependencies = [
     "flashinfer-cubin>=0.5.0",
     "flashinfer-python>=0.5.0",
     "google-genai>=1.46.0",
+    "liger-kernel>=0.6.3",
     "numpy==2.2",
     "nvidia-modelopt>=0.37.0",
     "openai>=2.3.0",
