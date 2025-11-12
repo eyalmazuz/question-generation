@@ -99,7 +99,7 @@ def main() -> None:
         dtype = torch.bfloat16
     tokenizer = AutoTokenizer.from_pretrained(args.odel_name)
     model = AutoModelForCausalLM.from_pretrained(
-        args.model_name,
+        args.model,
         quantization_config=quantization_config,
         dtype=dtype,
         attn_implementation="sdpa",
