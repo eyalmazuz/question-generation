@@ -133,12 +133,14 @@ def main() -> None:
         # STF related args
         # model_init_kwargs={"dtype": torch.bfloat16},
         # packing=True,
+        dataset_text_field="messages",  # Gemini's suggestion
         assistant_only_loss=True,  # Gemini's suggestion
         # completion_only_loss=True, # Gemini's suggestion
         pad_to_multiple_of=8,
         use_liger_kernel=True,
         activation_offloading=True,
-        max_length=2048,
+        # max_length=2048,
+
         # General train args
         output_dir=args.save_path,
         overwrite_output_dir=True,
@@ -177,7 +179,6 @@ def main() -> None:
         train_dataset=dataset["train"],
         eval_dataset=dataset["test"],
         peft_config=peft_config,
-        dataset_text_field="messages",  # Gemini's suggestion
         processing_class=tokenizer,
     )
 
