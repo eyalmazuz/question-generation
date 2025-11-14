@@ -106,7 +106,7 @@ def load_model(
         model_name,
         quantization_config=quantization_config,
         dtype=dtype,
-        attn_implementation="sdpa",
+        attn_implementation="eager",
         device_map=device,
     )
     model = torch.compile(
@@ -177,7 +177,7 @@ def evaluate_question(
             **encoding.to(model.device),
             do_sample=True,
             temperature=1.0,
-            max_new_tokens=1024,
+            max_new_tokens=512,
             cache_implementation="static",
             renormalize_logits=True,
         )
@@ -203,18 +203,18 @@ def convert_llm_output_to_binary(output: str) -> tuple[int, str | None]:
     #     # Honestly the part below with re is kinda useless but I like it
     #     answer_start = output[answer_start_index:]  # We slice to only get the answer
     if "Not answerable" in output:
-        success = 0
+        success = 1
         answer = None
     else:
         match = re.search(r"(?<=<ans>).*(?=<\/ans>)", output)
         if match is not None:
-            success = 1
+            success = 0
             answer = match.group().strip()
         else:
             success = -1
             answer = None
 
-    return 1 - success, answer
+    return success, answer
 
 
 def compute_metrics(
