@@ -13,18 +13,22 @@ torch.backends.cudnn.allow_tf32 = True
 
 
 def preprocess_function(example, prompt):
-    user_input = {
-        "role": "user",
-        "content": prompt.format(
-            question=example["question"],
-            context=example["context"],
-        ),
-    }
+    user_prompt = prompt.format(
+        question=example["question"],
+        context=example["context"],
+    )
     answer = "Not answerable" if example["is_impossible"] == 1 else example["answer"]
-    return {
-        "prompt": [user_input],
-        "completion": [{"role": "assistant", "content": f"{answer}"}],
-    }
+    # Geimini's suggestion vvv
+    messages = [
+        {"role": "user", "content": user_prompt},
+        {"role": "assistant", "content": f"{answer}"},
+    ]
+
+    return {"messages": messages}
+    # return {
+    #     "prompt": [{"role": "user", "content": user_prompt}],
+    #     "completion": [{"role": "assistant", "content": f"{answer}"}],
+    # }
 
 
 def parse_args() -> argparse.Namespace:
@@ -88,6 +92,7 @@ def main() -> None:
         preprocess_function,
         fn_kwargs={"prompt": prompt},
         remove_columns=dataset["train"].column_names,
+        batched=False,
     )
 
     print(dataset)
@@ -108,7 +113,7 @@ def main() -> None:
         dtype=dtype,
         attn_implementation="eager",
         # device_map=args.device,
-    ) # .to(args.device)
+    )  # .to(args.device)
     # Setup chat template
 
     print("Setting LoRA")
@@ -128,12 +133,12 @@ def main() -> None:
         # STF related args
         # model_init_kwargs={"dtype": torch.bfloat16},
         # packing=True,
-        completion_only_loss=True,
+        assistant_only_loss=True,  # Gemini's suggestion
+        # completion_only_loss=True, # Gemini's suggestion
         pad_to_multiple_of=8,
         use_liger_kernel=True,
         activation_offloading=True,
         max_length=2048,
-
         # General train args
         output_dir=args.save_path,
         overwrite_output_dir=True,
@@ -148,13 +153,13 @@ def main() -> None:
         max_steps=args.steps,
         warmup_ratio=0.2,
         logging_strategy="steps",
-        logging_steps=1000,
+        logging_steps=100,
         save_strategy="steps",
-        save_steps=3000,
+        save_steps=400,
         save_total_limit=3,
-        bf16=False,
+        bf16=True,
         tf32=True,
-        eval_steps=3000,
+        eval_steps=400,
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
@@ -172,6 +177,7 @@ def main() -> None:
         train_dataset=dataset["train"],
         eval_dataset=dataset["test"],
         peft_config=peft_config,
+        dataset_text_field="messages",  # Gemini's suggestion
         processing_class=tokenizer,
     )
 
