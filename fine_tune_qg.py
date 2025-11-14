@@ -100,7 +100,10 @@ def main() -> None:
     # Configure model and tokenizer
     if args.use_8bit or args.use_4bit:
         quantization_config = BitsAndBytesConfig(
-            load_in_8bit=args.use_8bit, load_in_4bit=args.use_4bit
+            load_in_8bit=args.use_8bit,
+            load_in_4bit=args.use_4bit,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_quant_type="nf4",
         )
         dtype = None
     else:
@@ -134,13 +137,12 @@ def main() -> None:
         # model_init_kwargs={"dtype": torch.bfloat16},
         # packing=True,
         dataset_text_field="messages",  # Gemini's suggestion
-        assistant_only_loss=True,  # Gemini's suggestion
-        # completion_only_loss=True, # Gemini's suggestion
+        # assistant_only_loss=True,  # Gemini's suggestion
+        # completion_only_loss=True,  # Gemini's suggestion
         pad_to_multiple_of=8,
         use_liger_kernel=True,
         activation_offloading=True,
         # max_length=2048,
-
         # General train args
         output_dir=args.save_path,
         overwrite_output_dir=True,
@@ -165,7 +167,7 @@ def main() -> None:
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
-        optim="adamw_8bit",
+        optim="paged_adamw_8bit",
         dataloader_pin_memory=True,
         torch_compile=False,
         gradient_checkpointing=True,
